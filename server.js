@@ -1,45 +1,58 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const htmlToImage = require('html-to-image');
-const { JSDOM } = require('jsdom');
+const puppeteer = require('puppeteer');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(bodyParser.json({ limit: '50mb' }));
 
 app.post('/convert', async (req, res) => {
+  let browser;
   try {
     const { html, css, width = 800, height = 600 } = req.body;
     
-    // Créer un DOM virtuel
-    const dom = new JSDOM(`
+    // Lancer un navigateur headless
+    browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    // Configurer la taille de la page
+    await page.setViewport({ width, height });
+    
+    // Créer le contenu HTML avec le CSS
+    const content = `
       <!DOCTYPE html>
       <html>
         <head>
-          <style>
-            ${css}
-            body {
-              width: ${width}px;
-              height: ${height}px;
-            }
-          </style>
+          <style>${css}</style>
         </head>
         <body>${html}</body>
       </html>
-    `);
+    `;
     
-    const node = dom.window.document.querySelector('body');
+    // Charger le contenu HTML
+    await page.setContent(content, { waitUntil: 'networkidle0' });
     
-    // Convertir en PNG avec dimensions spécifiées
-    const dataUrl = await htmlToImage.toPng(node, {
-      width: width,
-      height: height
+    // Prendre une capture d'écran
+    const screenshot = await page.screenshot({ 
+      type: 'png',
+      encoding: 'base64'
     });
     
-    // Renvoyer l'image
-    res.send({ imageUrl: dataUrl });
+    // Renvoyer l'image en base64
+    res.send({ 
+      imageUrl: `data:image/png;base64,${screenshot}` 
+    });
   } catch (error) {
+    console.error('Erreur lors de la conversion:', error);
     res.status(500).send({ error: error.message });
+  } finally {
+    // Fermer le navigateur pour libérer les ressources
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 
